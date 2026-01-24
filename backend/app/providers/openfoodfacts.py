@@ -7,7 +7,7 @@ class OpenFoodFactsProvider(BaseProvider):
     """Provider for Open Food Facts API"""
     
     BASE_URL = "https://world.openfoodfacts.org/api/v2"
-    TIMEOUT = 5.0
+    TIMEOUT = 10.0
     
     @property
     def provider_name(self) -> str:

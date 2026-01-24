@@ -7,7 +7,7 @@ class OpenGTINDBProvider(BaseProvider):
     """Provider for OpenGTINDB API"""
     
     BASE_URL = "https://opengtindb.org"
-    TIMEOUT = 5.0
+    TIMEOUT = 10.0
     
     @property
     def provider_name(self) -> str:
