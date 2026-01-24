@@ -1,0 +1,61 @@
+# Environment
+.env
+.env.local
+.env.*.local
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.svelte-kit/
+
+# Database
+*.db
+*.sqlite
+postgres_data/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+coverage/
+.coverage
+htmlcov/
+
+# Docker
+docker-compose.override.yml
+
+# SSL Certificates (self-signed or production)
+infra/ssl/*.key
+infra/ssl/*.crt
+infra/ssl/*.pem
+*.key
+*.crt
+*.pem
+
+# Sensitive data
+secrets/
+.secrets
