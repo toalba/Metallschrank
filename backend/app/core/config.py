@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     # CORS - parse from comma-separated string
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost"
     
+    # Authentication (simple username/password for now)
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "admin"
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -1,92 +1,71 @@
 # Metallschrank Inventory System
 
-## Project Overview
-SvelteKit + FastAPI + PostgreSQL monorepo for barcode-based inventory management. Users scan barcodes (mobile-friendly), lookup products via local DB or public APIs (OpenFoodFacts), then create inventory items with location tracking.
+## Architecture Overview
+SvelteKit + FastAPI + PostgreSQL monorepo for barcode-based inventory. Barcodes are looked up via local DB first, then external providers (OpenFoodFacts, etc.), then saved for future lookups.
 
-## Architecture
-
-### Monorepo Structure
 ```
-/frontend    # SvelteKit (TypeScript) - barcode scanning UI
-/backend     # FastAPI (Python 3.11+) - async API + barcode providers
-/infra       # Docker setup, init scripts
-docker-compose.yml
+/frontend    # SvelteKit (TypeScript) - /scan, /inventory pages
+/backend     # FastAPI (Python 3.11+) - async API + provider pattern
+/infra       # nginx.conf, init.sql
 ```
 
-### Data Model (SQLAlchemy async + asyncpg)
-- **Product**: gtin (EAN/UPC), name, brand, image_url, source (enum: manual|openfoodfacts|...), raw_payload (jsonb)
-- **InventoryItem**: product_id (FK), location (string: "Schrank A / Fach 3"), quantity, unit, notes
-- **InventoryTransaction**: inventory_item_id (FK), delta (int), reason (enum: add|remove|adjust)
+## Core Data Flow: `/api/lookup`
+See [lookup.py](backend/app/api/routes/lookup.py) - the central endpoint:
+1. Query local DB by GTIN → return if found
+2. Call `provider_registry.lookup(code)` → tries providers in `BARCODE_PROVIDERS` order
+3. Save new Product with `source` enum + `raw_payload` (JSONB) for debugging
+4. Frontend receives product → user creates InventoryItem with location
 
-### Key API Flow: POST /api/lookup
-1. Check local DB for existing product by code
-2. If not found: call configured providers (OpenFoodFacts first)
-3. Normalize response → create Product with source + raw_payload
-4. Return product to frontend for inventory creation
+## Key Patterns
 
-## Tech Stack Specifics
+### Provider Pattern (Backend)
+All barcode APIs implement `BaseProvider` ([base.py](backend/app/providers/base.py)):
+```python
+class YourProvider(BaseProvider):
+    TIMEOUT = 5.0  # Required: 3-5s timeout
+    
+    @property
+    def provider_name(self) -> str: return "yourprovider"
+    
+    async def lookup(self, code: str) -> Optional[ProviderResult]:
+        # Use httpx async client, return ProviderResult or None
+```
+Register in [registry.py](backend/app/providers/registry.py), add to `ProductSource` enum in [product.py](backend/app/models/product.py), enable via `BARCODE_PROVIDERS` env var.
 
-### Backend (FastAPI)
-- **Async everything**: SQLAlchemy 2.0 async engine, httpx for provider calls
-- **Migrations**: Alembic (`alembic upgrade head` on startup)
-- **Settings**: pydantic-settings from .env (BARCODE_PROVIDERS, DATABASE_URL)
-- **Provider pattern**: BaseProvider.lookup(code) → ProviderResult | None
-  - Implement OpenFoodFacts provider with 3-5s timeout
-  - Store raw_payload for debugging/reprocessing
-- **Lint**: ruff + black
+### Async SQLAlchemy
+All DB operations use async patterns. See [database.py](backend/app/core/database.py):
+```python
+async with AsyncSessionLocal() as session:
+    result = await db.execute(select(Product).where(...))
+```
 
-### Frontend (SvelteKit)
-- **Barcode scanning**: @zxing/browser for camera stream + manual fallback
-- **Key pages**: /scan (camera + lookup + "add to inventory" form), /inventory (list + quick adjust ±1)
-- **API integration**: VITE_API_BASE_URL env var, handle CORS in dev
-- **Lint**: eslint + prettier
+### Frontend API Client
+[api.ts](frontend/src/lib/api.ts) wraps all endpoints with auth. Uses `PUBLIC_API_BASE_URL` env var (defaults to `/api`).
 
-### Docker Compose
-- Services: postgres:15, backend (uvicorn), frontend (Vite dev or build), nginx (reverse proxy)
-- Init: backend runs `alembic upgrade head` on container start
-- One command: `docker compose up --build` → full stack running
-- **CORS strategy**: 
-  - Development: FastAPI CORS middleware allows `http://localhost:5173`
-  - Production: nginx proxies `/api/*` → backend:8000, serves frontend static files
-  - nginx config: `infra/nginx.conf` with proxy_pass for API routes
+### Authentication
+Simple HTTP Basic Auth for all API routes (except `/api/ping`). See [auth.py](backend/app/core/auth.py):
+- Credentials via env vars: `ADMIN_USERNAME`, `ADMIN_PASSWORD` (default: admin/admin)
+- Frontend stores credentials in localStorage via [auth.ts](frontend/src/lib/auth.ts)
+- All API calls include `Authorization: Basic <base64>` header automatically
+- 401 response → auto-logout and redirect to `/login`
 
-## Development Workflows
-
-### Initial Setup
+## Development Commands
 ```bash
-cp .env.example .env
+# Full stack (runs migrations automatically)
 docker compose up --build
-# Backend auto-runs migrations
-# Nginx: http://localhost (proxies to frontend + /api/ to backend)
-# Direct access: Frontend :5173, Backend :8000/docs (dev only)
+
+# Access points:
+# - https://localhost (nginx proxy, self-signed SSL)
+# - http://localhost:8000/docs (FastAPI Swagger, direct)
+# - http://localhost:5173 (Vite dev server, if running locally)
+
+# New migration after model changes
+cd backend && alembic revision --autogenerate -m "description"
 ```
 
-### CORS Configuration
-- **Dev mode**: FastAPI app includes CORS middleware with origins from `CORS_ORIGINS` env var
-- **Production**: nginx reverse proxy eliminates CORS (same-origin for browser)
-- Example nginx location blocks:
-  ```nginx
-  location /api/ { proxy_pass http://backend:8000; }
-  location / { proxy_pass http://frontend:5173; }  # or serve static
-  ```
-
-### Adding a New Barcode Provider
-1. Create `backend/app/providers/your_provider.py` implementing `BaseProvider`
-2. Add normalization logic for name/brand/image_url
-3. Register in settings: `BARCODE_PROVIDERS="openfoodfacts,your_provider"`
-4. Add unit test mocking HTTP response
-
-### Testing
-- Backend: `pytest` with async fixtures, mock httpx calls for providers
-- Critical tests: lookup local hit, provider hit (mocked), not found scenario
-
-## Project Conventions
-- **German location strings**: "Schrank A / Fach 3 / Box 2" (cabinet/shelf/box hierarchy)
-- **Type hints everywhere**: Python mypy-compatible, TypeScript strict mode
-- **Error handling**: 3-5s provider timeouts, graceful fallback to "not_found"
-- **No aspirational caching**: rely on Product DB persistence (no Redis initially)
-
-## Common Tasks
-- **Add product manually**: POST /api/products with gtin, name, brand
-- **Adjust inventory**: POST /api/inventory/{id}/adjust with delta (±quantity)
-- **Debug barcode lookup**: check Product.raw_payload jsonb field for provider response
+## Conventions
+- **Location format**: German hierarchy "Schrank A / Fach 3 / Box 2"
+- **Provider timeouts**: Always 3-5s, fail gracefully returning `None`
+- **raw_payload**: Store full provider response for debugging/reprocessing
+- **Enums**: `ProductSource` for data origin, `TransactionReason` for inventory changes
+- **UUIDs**: All primary keys use `uuid4`

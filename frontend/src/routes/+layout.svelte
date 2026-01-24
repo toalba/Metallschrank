@@ -1,24 +1,48 @@
 <script lang="ts">
 	import '../app.css';
+	import { auth } from '$lib/auth';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
+	import { onMount } from 'svelte';
+	
+	// Reactive: check if current page is login
+	$: isLoginPage = $page.url.pathname === '/login';
+	
+	// Redirect to login if not authenticated (except on login page)
+	$: if (!$auth.isAuthenticated && !isLoginPage && typeof window !== 'undefined') {
+		goto('/login');
+	}
+	
+	function handleLogout() {
+		auth.logout();
+		goto('/login');
+	}
 </script>
 
 <div class="app">
-	<header>
-		<nav class="container">
-			<div class="nav-content">
-				<h1 class="logo">📦 Metallschrank</h1>
-				<div class="nav-links">
-					<a href="/">Home</a>
-					<a href="/scan">Scan</a>
-					<a href="/inventory">Inventory</a>
-				</div>
-			</div>
-		</nav>
-	</header>
+	{#if $auth.isAuthenticated || isLoginPage}
+		{#if !isLoginPage}
+			<header>
+				<nav class="container">
+					<div class="nav-content">
+						<h1 class="logo">📦 Metallschrank</h1>
+						<div class="nav-links">
+							<a href="/">Home</a>
+							<a href="/scan">Scan</a>
+							<a href="/inventory">Inventory</a>
+							<button class="logout-btn" on:click={handleLogout}>
+								Logout ({$auth.username})
+							</button>
+						</div>
+					</div>
+				</nav>
+			</header>
+		{/if}
 
-	<main class="container">
-		<slot />
-	</main>
+		<main class="container" class:no-header={isLoginPage}>
+			<slot />
+		</main>
+	{/if}
 </div>
 
 <style>
@@ -67,6 +91,25 @@
 		flex: 1;
 		padding-top: var(--spacing-xl);
 		padding-bottom: var(--spacing-xl);
+	}
+
+	main.no-header {
+		padding-top: 0;
+	}
+
+	.logout-btn {
+		background: rgba(255, 255, 255, 0.2);
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		color: white;
+		padding: 0.25rem 0.75rem;
+		border-radius: var(--radius-md);
+		cursor: pointer;
+		font-size: 0.85rem;
+		transition: background 0.2s;
+	}
+
+	.logout-btn:hover {
+		background: rgba(255, 255, 255, 0.3);
 	}
 
 	@media (max-width: 768px) {
