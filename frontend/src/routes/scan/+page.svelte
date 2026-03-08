@@ -7,6 +7,7 @@
 		product?: Product;
 	};
 
+	let scanner: BarcodeScanner;
 	let barcodeInput = '';
 	let lookupResult: LookupResponse | null = null;
 	let isLookingUp = false;
@@ -37,8 +38,18 @@
 	let isCreatingProduct = false;
 	let productError: string | null = null;
 
+	function isValidBarcode(code: string): boolean {
+		// GTIN-8, GTIN-12 (UPC), GTIN-13 (EAN), GTIN-14
+		return /^\d{8,14}$/.test(code);
+	}
+
 	async function handleLookup() {
 		if (!barcodeInput.trim()) return;
+
+		if (!isValidBarcode(barcodeInput.trim())) {
+			lookupError = 'Ungültiger Barcode. Bitte eine 8-14 stellige Nummer eingeben.';
+			return;
+		}
 
 		isLookingUp = true;
 		lookupError = null;
@@ -49,7 +60,7 @@
 		try {
 			lookupResult = await api.lookupBarcode(barcodeInput.trim());
 			
-			// If product found, check if it exists in inventory
+			// If product found, load inventory
 			if (lookupResult?.product) {
 				await loadExistingInventory(lookupResult.product.id);
 			}
@@ -103,6 +114,7 @@
 
 	function handleScan(event: CustomEvent<string>) {
 		barcodeInput = event.detail;
+		scanner?.stop();
 		handleLookup();
 	}
 
@@ -234,7 +246,7 @@
 
 	<div class="scanner-section">
 		<h2>Kamera-Scanner</h2>
-		<BarcodeScanner on:scan={handleScan} />
+		<BarcodeScanner bind:this={scanner} on:scan={handleScan} />
 	</div>
 
 	<div class="divider">
@@ -357,8 +369,8 @@
 								id="quantity"
 								type="number"
 								bind:value={quantity}
-								min="0"
-								step="any"
+								min="1"
+								step="1"
 								required
 								disabled={isCreatingInventory}
 							/>

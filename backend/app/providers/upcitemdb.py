@@ -1,6 +1,10 @@
+import logging
 from typing import Optional
+
 import httpx
 from app.providers.base import BaseProvider, ProviderResult
+
+logger = logging.getLogger(__name__)
 
 
 class UPCItemDBProvider(BaseProvider):
@@ -57,11 +61,11 @@ class UPCItemDBProvider(BaseProvider):
                 )
                 
         except httpx.TimeoutException:
-            print(f"UPCitemdb timeout for code {code}")
+            logger.warning(f"UPCitemdb timeout for code {code}")
             return None
         except httpx.HTTPError as e:
-            print(f"UPCitemdb HTTP error for code {code}: {e}")
+            logger.warning(f"UPCitemdb HTTP error for code {code}: {e}")
             return None
         except Exception as e:
-            print(f"UPCitemdb unexpected error for code {code}: {e}")
+            logger.warning(f"UPCitemdb unexpected error for code {code}: {e}")
             return None

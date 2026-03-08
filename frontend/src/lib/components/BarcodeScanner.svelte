@@ -1,19 +1,47 @@
 <script lang="ts">
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import { BrowserMultiFormatReader } from '@zxing/browser';
+	import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 	import type { Result } from '@zxing/library';
 
 	const dispatch = createEventDispatcher<{ scan: string }>();
 
+	export function stop() {
+		stopScanning();
+	}
+
+	// Only scan product barcode formats (skip QR, Aztec, DataMatrix etc.)
+	const BARCODE_HINTS = new Map<DecodeHintType, any>();
+	BARCODE_HINTS.set(DecodeHintType.POSSIBLE_FORMATS, [
+		BarcodeFormat.EAN_13,
+		BarcodeFormat.EAN_8,
+		BarcodeFormat.UPC_A,
+		BarcodeFormat.UPC_E,
+		BarcodeFormat.CODE_128,
+		BarcodeFormat.CODE_39,
+	]);
+	BARCODE_HINTS.set(DecodeHintType.TRY_HARDER, true);
+
 	let videoElement: HTMLVideoElement;
 	let codeReader: BrowserMultiFormatReader | null = null;
 	let isScanning = false;
+	let scanCooldown = false;
+	let lastScannedCode = '';
 	let error: string | null = null;
 	let permissionDenied = false;
 	let stream: MediaStream | null = null;
 
+	const SCAN_COOLDOWN_MS = 2000;
+
+	function createReader(): BrowserMultiFormatReader {
+		return new BrowserMultiFormatReader(BARCODE_HINTS, {
+			delayBetweenScanAttempts: 100,  // Default is 500ms — scan faster
+			delayBetweenScanSuccess: 1000,
+		});
+	}
+
 	onMount(() => {
-		codeReader = new BrowserMultiFormatReader();
+		codeReader = createReader();
 	});
 
 	onDestroy(() => {
@@ -25,48 +53,54 @@
 
 		error = null;
 		permissionDenied = false;
+		lastScannedCode = '';
 
 		try {
-			// Check if getUserMedia is available
-			if (!navigator.mediaDevices && !navigator.getUserMedia) {
+			if (!navigator.mediaDevices?.getUserMedia) {
 				error = 'Kamera-API nicht verfügbar. Bitte über HTTPS zugreifen.';
 				return;
 			}
 
-			// Request camera access with constraints
-			const constraints: MediaStreamConstraints = {
+			stream = await navigator.mediaDevices.getUserMedia({
 				video: {
-					facingMode: 'environment' // Prefer back camera on mobile
+					facingMode: 'environment',
+					width: { ideal: 1280 },
+					height: { ideal: 720 },
 				}
-			};
+			});
 
-			// Try modern API first, fallback to legacy
-			if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-				stream = await navigator.mediaDevices.getUserMedia(constraints);
-			} else {
-				// Legacy API fallback
-				const getUserMedia = navigator.getUserMedia || 
-					(navigator as any).webkitGetUserMedia || 
-					(navigator as any).mozGetUserMedia;
-				
-				stream = await new Promise<MediaStream>((resolve, reject) => {
-					getUserMedia.call(navigator, constraints, resolve, reject);
+			// Apply advanced constraints for faster autofocus (best-effort, ignored if unsupported)
+			const [track] = stream.getVideoTracks();
+			try {
+				await track.applyConstraints({
+					advanced: [
+						{ focusMode: 'continuous' } as any,
+						{ focusDistance: 0.15 } as any,  // ~15cm, typical barcode scan distance
+					]
 				});
+			} catch {
+				// Not all browsers/cameras support these — that's fine
 			}
 
 			videoElement.srcObject = stream;
-			
+
 			isScanning = true;
 
 			// Start decoding from video element
 			await codeReader.decodeFromVideoElement(
 				videoElement,
-				(result: Result | null, error: Error | undefined) => {
-					if (result) {
+				(result: Result | undefined, _error: Error | undefined) => {
+					if (result && !scanCooldown) {
 						const code = result.getText();
+						// Skip if same code scanned again within cooldown
+						if (code === lastScannedCode) return;
+						lastScannedCode = code;
+						scanCooldown = true;
 						dispatch('scan', code);
-						// Optionally stop scanning after successful scan
-						// stopScanning();
+						// Cooldown prevents rapid duplicate scans
+						setTimeout(() => {
+							scanCooldown = false;
+						}, SCAN_COOLDOWN_MS);
 					}
 				}
 			);
@@ -99,14 +133,9 @@
 			videoElement.srcObject = null;
 		}
 
-		// Reset code reader if it has the method
-		if (codeReader && typeof codeReader.reset === 'function') {
-			try {
-				codeReader.reset();
-			} catch (e) {
-				// Ignore reset errors
-				console.warn('CodeReader reset failed:', e);
-			}
+		// Re-create code reader to reset internal state
+		if (codeReader) {
+			codeReader = createReader();
 		}
 
 		isScanning = false;

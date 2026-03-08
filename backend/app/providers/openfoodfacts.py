@@ -1,13 +1,17 @@
+import logging
 from typing import Optional
+
 import httpx
 from app.providers.base import BaseProvider, ProviderResult
+
+logger = logging.getLogger(__name__)
 
 
 class OpenFoodFactsProvider(BaseProvider):
     """Provider for Open Food Facts API"""
     
     BASE_URL = "https://world.openfoodfacts.org/api/v2"
-    TIMEOUT = 10.0
+    TIMEOUT = 5.0
     
     @property
     def provider_name(self) -> str:
@@ -62,11 +66,11 @@ class OpenFoodFactsProvider(BaseProvider):
                 )
                 
         except httpx.TimeoutException:
-            print(f"OpenFoodFacts timeout for code {code}")
+            logger.warning(f"OpenFoodFacts timeout for code {code}")
             return None
         except httpx.HTTPError as e:
-            print(f"OpenFoodFacts HTTP error for code {code}: {e}")
+            logger.warning(f"OpenFoodFacts HTTP error for code {code}: {e}")
             return None
         except Exception as e:
-            print(f"OpenFoodFacts unexpected error for code {code}: {e}")
+            logger.warning(f"OpenFoodFacts unexpected error for code {code}: {e}")
             return None
